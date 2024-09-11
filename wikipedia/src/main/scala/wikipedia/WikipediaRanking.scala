@@ -27,6 +27,9 @@ object WikipediaRanking extends WikipediaRankingInterface:
   val conf: SparkConf = new SparkConf()
     .setAppName("WikipediaRanking")
     .setMaster("local[*]")
+    // .set("spark.serializer", "org.apache.spark.serializer.JavaSerializer")
+    // .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+    // .set("spark.kryo.classesToRegister", "java.nio.HeapByteBuffer")
 
   val sc: SparkContext = new SparkContext(conf)
 

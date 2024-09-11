@@ -1,5 +1,5 @@
 course := "bigdata"
-assignment := "wikipedia"
+assignment := "stackoverflow"
 
 scalaVersion := "3.3.0"
 scalacOptions ++= Seq("-language:implicitConversions", "-deprecation")
