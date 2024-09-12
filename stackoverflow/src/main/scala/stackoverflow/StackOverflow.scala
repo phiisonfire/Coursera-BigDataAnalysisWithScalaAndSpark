@@ -35,6 +35,7 @@ object StackOverflow extends StackOverflow:
 
   /** Main function */
   def main(args: Array[String]): Unit =
+    val startTime = System.nanoTime()
     val inputFileLocation: String = "/stackoverflow/stackoverflow-grading.csv"
     val resource = getClass.getResourceAsStream(inputFileLocation)
     val inputFile = Source.fromInputStream(resource)(Codec.UTF8)
@@ -49,6 +50,10 @@ object StackOverflow extends StackOverflow:
     val means   = kmeans(sampleVectors(vectors), vectors, debug = true)
     val results = clusterResults(means, vectors)
     printResults(results)
+
+    val endTime = System.nanoTime()
+    val duration = (endTime - startTime) / 1e9
+    println(f"Execution time: $duration%.3f seconds")
 
 /** The parsing and kmeans methods */
 class StackOverflow extends StackOverflowInterface with Serializable:
@@ -134,7 +139,7 @@ class StackOverflow extends StackOverflowInterface with Serializable:
 
     scored.flatMap {
       case (q, hs) => firstLangInTag(q.tags, langs).map(idx => (idx * langSpread, hs))
-    }
+    }.cache()
     // Option.map(f) = if (Option is Some) f(Some) else None
     // flatMap automatically filter out None records
 
@@ -285,27 +290,18 @@ class StackOverflow extends StackOverflowInterface with Serializable:
     val closestGrouped = closest.groupByKey() // RDD(mean, ps)
 
     val median = closestGrouped.mapValues { vs =>
-      val langLabel: String   = { // most common language in the cluster
-        val mostCommonLangIndex = {
-          vs.groupBy((langIndex, _) => langIndex)
-            .map((langIndex, pairs) => (langIndex, pairs.size))
-            .foldLeft((0, 0)) { case ((lang1, c1), (lang2, c2)) =>
-              if (c1 < c2) (lang2, c2) else (lang1, c1)
-            }._1
-        }
-        langs(mostCommonLangIndex / langSpread)
-      }
+      val langsGroupedScores = vs.groupBy(_._1).view.mapValues(_.size)
+      val mostCommonLang = langsGroupedScores.maxBy(_._2)
+      val langsScores = langsGroupedScores.values.toArray.sorted
 
-      val langPercent: Double = { // percent of the questions in the most common language
-        val mostCommonLangIndex = langs.indexOf(langLabel) * langSpread
-        vs.filter(_._1 == mostCommonLangIndex).size / vs.size
-      }
-      val clusterSize: Int    = vs.size
-      val medianScore: Int    = {
-        val sortedScores = vs.map((_, score) => score).toArray.sorted
-        val n = sortedScores.size
-        if (n % 2 == 1) sortedScores(n / 2)
-        else sortedScores(n / 2 - 1)
+      val langLabel: String = langs(mostCommonLang._1 / langSpread) // most common language in the cluster
+      val langPercent: Double = (mostCommonLang._2 / vs.size.toDouble) * 100.0 // percent of the questions in the most common language
+      val clusterSize: Int = vs.size
+
+      val allScores = vs.map(_._2).toList.sorted
+      val medianScore: Int = allScores.size % 2 match {
+        case 0 => (allScores(allScores.size / 2) + allScores(allScores.size / 2 - 1)) / 2
+        case _ => allScores(allScores.size / 2)
       }
 
       (langLabel, langPercent, clusterSize, medianScore)
