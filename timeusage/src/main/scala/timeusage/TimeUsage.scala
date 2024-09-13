@@ -36,8 +36,24 @@ object TimeUsage extends TimeUsageInterface:
     val (columns, initDf) = read("src/main/resources/timeusage/atussum.csv")
     val (primaryNeedsColumns, workColumns, otherColumns) = classifiedColumns(columns)
     val summaryDf = timeUsageSummary(primaryNeedsColumns, workColumns, otherColumns, initDf)
+    println("-----DataFrame API-----")
+    val dataFrameAPIStartTime = System.nanoTime()
     val finalDf = timeUsageGrouped(summaryDf)
     finalDf.show()
+    println(s"DataFrame API: ${(System.nanoTime() - dataFrameAPIStartTime) / 1e9d }%.2f seconds")
+
+    println("-----SQL Syntax-----")
+    val sqlStartTime = System.nanoTime()
+    val finalDfSQL = timeUsageGroupedSql(summaryDf)
+    finalDfSQL.show()
+    println(s"SQL Syntax: ${(System.nanoTime() - sqlStartTime) / 1e9d}%.2f seconds")
+
+    println("-----Dataset API-----")
+    val summaryDfTyped = timeUsageSummaryTyped(summaryDf)
+    val datasetStartTime = System.nanoTime()
+    val finalDataset = timeUsageGroupedSql(summaryDf)
+    finalDataset.show()
+    println(s"Dataset API: ${(System.nanoTime() - datasetStartTime) / 1e9d}%.2f seconds")
 
   /** @return The read DataFrame along with its column names. */
   def read(path: String): (List[String], DataFrame) =
@@ -195,7 +211,16 @@ object TimeUsage extends TimeUsageInterface:
     * @param viewName Name of the SQL view to use
     */
   def timeUsageGroupedSqlQuery(viewName: String): String =
-    ???
+    s"""
+    SELECT
+      working, sex, age,
+      ROUND(AVG(primaryNeeds), 1) AS avgPrimaryNeedsTimeSpent,
+      ROUND(AVG(work), 1) AS avgWorkActivitiesTimeSpent,
+      ROUND(AVG(other), 1) AS avgOtherActivitiesTimeSpent
+    FROM $viewName
+    GROUP BY working, sex, age
+    ORDER BY working, sex, age
+    """.stripMargin
 
   /**
     * @return A `Dataset[TimeUsageRow]` from the “untyped” `DataFrame`
@@ -205,7 +230,16 @@ object TimeUsage extends TimeUsageInterface:
     * cast them at the same time.
     */
   def timeUsageSummaryTyped(timeUsageSummaryDf: DataFrame): Dataset[TimeUsageRow] =
-    ???
+    timeUsageSummaryDf.map( row =>
+      TimeUsageRow(
+        working = row.getAs("working").asInstanceOf[String],
+        sex = row.getAs("sex").asInstanceOf[String],
+        age = row.getAs("age").asInstanceOf[String],
+        primaryNeeds = row.getAs("primaryNeeds").asInstanceOf[Double],
+        work = row.getAs("work").asInstanceOf[Double],
+        other = row.getAs("other").asInstanceOf[Double]
+      )
+    )
 
   /**
     * @return Same as `timeUsageGrouped`, but using the typed API when possible
@@ -219,7 +253,16 @@ object TimeUsage extends TimeUsageInterface:
     * Hint: you should use the `groupByKey` and `avg` methods.
     */
   def timeUsageGroupedTyped(summed: Dataset[TimeUsageRow]): Dataset[TimeUsageRow] =
-    ???
+    summed
+      .groupByKey(row => (row.working, row.sex, row.age))
+      .agg(
+        round(avg($"primaryNeeds"), 1).as[Double],
+        round(avg($"work"), 1).as[Double],
+        round(avg($"other"), 1).as[Double]
+      )
+      .map(row => row match
+        case ((working, sex, age), primaryNeeds, work, other) => TimeUsageRow(working, sex, age, primaryNeeds, work, other)
+      )
 
 /**
   * Models a row of the summarized data set
